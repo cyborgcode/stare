@@ -40,8 +40,8 @@ const SPRING_RESPONSE = 0.45;
 const OPEN_DAMPING = 0.7;
 const CLOSE_DAMPING = 1;
 const COLLAPSE_DURATION = 0.7;
-const SUCCESS_HOLD = 1.7;
-const FAILURE_HOLD = 5;
+const SUCCESS_HOLD = 1.2;
+const FAILURE_HOLD = 3.5;
 // Like Glance, a scan nobody resolves closes on its own. A Gaze scan lasts at
 // most 12 s, so this only fires if an end signal was missed.
 const SCAN_TIMEOUT = 20;
@@ -53,7 +53,9 @@ const PULSE_OPACITY = 0.65;
 const PULSE_SETTLE = 0.2;
 const TURN_SETTLE = 0.1;
 
-const FPS = 60;
+// Glance's clips are 60 fps; Stare plays them half again as fast.
+const CLIP_SPEED = 1.5;
+const FPS = 60 * CLIP_SPEED;
 const IDLE_FRAMES = 181;
 const SUCCESS_FRAMES = 73;
 const FAILURE_FRAMES = 91;

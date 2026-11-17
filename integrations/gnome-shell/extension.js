@@ -2248,16 +2248,18 @@ export default class GazeFaceAuthExtension extends Extension {
         function finishPrompt(...args) {
           const verifier = this._userVerifier;
           const queue = verifier?._messageQueue;
-          // Hints, and anything the face scan still has to say (it keeps
-          // talking until it is cancelled, e.g. after a faster password),
-          // must not hold the unlock back.
+          // Once authenticated, unlock at once: hints, errors left over
+          // from earlier attempts and anything the face scan still has to
+          // say (it keeps talking until cancelled, e.g. after a faster
+          // password) must not hold it back. Only notices such as an
+          // expiring password are still shown first.
           if (
             Array.isArray(queue) &&
             queue.length &&
             queue.every(
               (m) =>
                 !m.text ||
-                m.type <= MESSAGE_TYPE.HINT ||
+                m.type !== MESSAGE_TYPE.INFO ||
                 m.serviceName === FACE_SERVICE_NAME,
             ) &&
             typeof verifier._clearMessageQueue === "function"

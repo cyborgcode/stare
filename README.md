@@ -46,8 +46,9 @@ applies as is. The settings window still calls itself Gaze.
 | GDM login screen | System install, and face login turned on for GDM |
 
 On a face match the island draws its checkmark before the lock screen or login
-screen goes away, so the unlock waits about a second for it (never more than
-1.5 s). If the desktop's animations are turned off, nothing waits.
+screen goes away, so the unlock waits about 0.7 s for it (never more than
+1.5 s). If the desktop's animations are turned off, nothing waits. A password
+always unlocks at once, even while the camera is still looking.
 
 ## Install
 

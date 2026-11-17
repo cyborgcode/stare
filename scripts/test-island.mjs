@@ -9,9 +9,10 @@ import {test} from 'node:test';
 
 import {IslandModel, drawIsland} from '../integrations/gnome-shell/islandDrawing.js';
 
-const FAILURE_CLIP = 91 / 60;
-const SUCCESS_HOLD = 1.7;
-const FAILURE_HOLD = 5;
+const CLIP_FPS = 90; // Glance's 60 fps clips at 1.5x
+const FAILURE_CLIP = 91 / CLIP_FPS;
+const SUCCESS_HOLD = 1.2;
+const FAILURE_HOLD = 3.5;
 const COLLAPSE = 0.7;
 
 // A cairo context that accepts any call but rejects non-finite arguments.
@@ -76,11 +77,11 @@ test('success draws the check, holds, then closes', () => {
     const model = new IslandModel();
     model.scan(0);
     model.succeed(2);
-    assert.equal(model.frame(2 + 0.5).glyph.spin !== null, true, 'ring is spinning');
-    const done = model.frame(2 + 1.3).glyph;
+    assert.equal(model.frame(2 + 0.3).glyph.spin !== null, true, 'ring is spinning');
+    const done = model.frame(2 + 0.9).glyph;
     assert.equal(done.check, 1);
     assert.equal(done.outline.gap, 0);
-    model.end(2 + 1.3);
+    model.end(2 + 0.9);
     assert.equal(model.state, 'success', 'end lets the success play out');
     assert.equal(model.active(2 + SUCCESS_HOLD - 0.01), true);
     assert.equal(model.active(2 + SUCCESS_HOLD + 0.01), true);
@@ -113,9 +114,9 @@ test('successRemaining counts down to the finished checkmark', () => {
     model.scan(0);
     assert.equal(model.successRemaining(1), 0);
     model.succeed(1);
-    assert.ok(Math.abs(model.successRemaining(1) - 67 / 60) < 1e-9);
-    assert.equal(model.frame(1 + 67 / 60).glyph.check, 1);
-    assert.equal(model.successRemaining(1 + 67 / 60), 0);
+    assert.ok(Math.abs(model.successRemaining(1) - 67 / CLIP_FPS) < 1e-9);
+    assert.equal(model.frame(1 + 67 / CLIP_FPS).glyph.check, 1);
+    assert.equal(model.successRemaining(1 + 67 / CLIP_FPS), 0);
 
     const reduced = new IslandModel();
     reduced.reducedMotion = true;
@@ -127,14 +128,14 @@ test('success is shown even if the scan was never announced', () => {
     const model = new IslandModel();
     model.succeed(0);
     assert.equal(model.state, 'success');
-    assert.equal(model.frame(1.3).glyph.check, 1);
+    assert.equal(model.frame(0.9).glyph.check, 1);
 });
 
 test('failure dims, shakes, holds, then closes', () => {
     const model = new IslandModel();
     model.scan(0);
     model.fail(2);
-    const shaking = model.frame(2 + 55 / 60).glyph;
+    const shaking = model.frame(2 + 55 / CLIP_FPS).glyph;
     assert.ok(shaking.dx > 15, `shake ${shaking.dx}`);
     const rest = model.frame(2 + 2).glyph;
     assert.equal(rest.dx, 0);

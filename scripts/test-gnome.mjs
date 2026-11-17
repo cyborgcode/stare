@@ -372,6 +372,12 @@ async function flush() {
     for (let i = 0; i < 8; i++) await Promise.resolve();
 }
 
+// Queues a verifier message the way this shell version does.
+function queueMessage(env, serviceName, message, messageType) {
+    if (env.services) env.verifier._queueMessage({serviceName, message, messageType});
+    else env.verifier._queueMessage(serviceName, message, messageType);
+}
+
 // Delivers a PAM info message the way GDM does for this shell version.
 function pamInfo(env, service, text) {
     if (env.services) env.services._onInfo(service, text);
@@ -540,12 +546,24 @@ for (const version of versions) {
         } finally { env.extension.disable(); }
     });
 
-    test(`${version}: a pending password-service error still holds unlock`, async () => {
+    test(`${version}: a stale password error does not hold unlock`, async () => {
         const env = await environment(version);
         try {
             await begin(env);
-            if (env.services) env.services._onProblem('gdm-password', 'GAZE_MSG_FACE_UNAVAILABLE');
-            else env.verifier._onProblem(null, 'gdm-password', 'GAZE_MSG_FACE_UNAVAILABLE');
+            queueMessage(env, 'gdm-password', 'Sorry, that didn\u2019t work. Please try again.', 3);
+            assert.equal(env.verifier.hasPendingMessages, true);
+            env.verifier.clear = () => {};
+            let unlocked = false;
+            env.prompt.finish(() => { unlocked = true; });
+            assert.equal(unlocked, true);
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: a password-service notice is still shown before unlock`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            queueMessage(env, 'gdm-password', 'Your password will expire in 3 days', 2);
             assert.equal(env.verifier.hasPendingMessages, true);
             env.verifier.clear = () => {};
             let unlocked = false;
