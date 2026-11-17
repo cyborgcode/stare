@@ -14,7 +14,9 @@ sudo | sudo-i | su | su-l) ;;
 *) exit 0 ;; # graphical prompts report to the shell themselves
 esac
 [ "${PAM_TYPE:-}" = auth ] || exit 0
-user=${PAM_RUSER:-}
+# Whoever asked: sudo-rs (Ubuntu's sudo) leaves PAM_RUSER unset, but sudo
+# authenticates the calling user, so PAM_USER names them.
+user=${PAM_RUSER:-${PAM_USER:-}}
 [ -n "$user" ] || exit 0
 
 /usr/bin/timeout 1 /usr/bin/gdbus emit --system \
