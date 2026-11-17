@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 [Desktop Entry]
-Name=Gaze
+Name=Stare
 Comment=Enroll faces and configure facial authentication
 Exec=gaze-gui
 Icon=com.gundulabs.Gaze

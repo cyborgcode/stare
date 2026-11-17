@@ -1,6 +1,6 @@
 {
-    "name": "Gaze",
-    "description": "GNOME Shell extension for Gaze",
+    "name": "Stare",
+    "description": "Gaze face authentication with a dynamic island",
     "uuid": "gaze@gundulabs.com",
     "shell-version": [
         "51",

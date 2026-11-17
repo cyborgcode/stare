@@ -32,6 +32,8 @@ stdenvNoCC.mkDerivation {
     ext=$out/share/gnome-shell/extensions/${uuid}
     install -Dm644 integrations/gnome-shell/metadata.json -t "$ext"
     install -Dm644 integrations/gnome-shell/extension.js -t "$ext"
+    install -Dm644 integrations/gnome-shell/island.js -t "$ext"
+    install -Dm644 integrations/gnome-shell/islandDrawing.js -t "$ext"
     install -Dm644 integrations/gnome-shell/prefs.js -t "$ext"
 
     # GNOME Shell loads the settings schema from the extension directory.

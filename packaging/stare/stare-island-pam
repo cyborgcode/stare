@@ -1,0 +1,24 @@
+#!/bin/sh
+# SPDX-FileCopyrightText: 2026 Stare contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Run by pam_exec around Gaze in the auth stack (see pam-configs/). Tells the
+# GNOME Shell of the user who asked for authentication that a terminal face
+# scan started (scan), that Gaze did not match (fail) or that the stack passed
+# (done). It never takes part in the decision: its PAM lines are optional, it
+# always exits 0 and it gives up after a second.
+event=$1
+
+case ${PAM_SERVICE:-} in
+sudo | sudo-i | su | su-l) ;;
+*) exit 0 ;; # graphical prompts report to the shell themselves
+esac
+[ "${PAM_TYPE:-}" = auth ] || exit 0
+user=${PAM_RUSER:-}
+[ -n "$user" ] || exit 0
+
+/usr/bin/timeout 1 /usr/bin/gdbus emit --system \
+    --object-path /io/github/stare/Island \
+    --signal io.github.stare.Island.Event \
+    "$event" "$PAM_SERVICE" "$user" >/dev/null 2>&1
+exit 0

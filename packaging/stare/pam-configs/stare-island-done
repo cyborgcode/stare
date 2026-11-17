@@ -1,0 +1,6 @@
+Name: Stare: Island after authentication
+Default: no
+Priority: 0
+Auth-Type: Additional
+Auth:
+	optional	pam_exec.so quiet seteuid type=auth /usr/local/libexec/stare-island-pam done

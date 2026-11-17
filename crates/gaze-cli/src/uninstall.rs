@@ -125,6 +125,8 @@ fn remove_unmanaged_install_artifacts_cmd() -> String {
           /usr/share/glib-2.0/schemas/org.gnome.shell.extensions.gaze.gschema.xml \
           /usr/share/polkit-1/actions/com.gundulabs.gaze.policy \
           /usr/share/gnome-shell/extensions/gaze@gundulabs.com/extension.js \
+          /usr/share/gnome-shell/extensions/gaze@gundulabs.com/island.js \
+          /usr/share/gnome-shell/extensions/gaze@gundulabs.com/islandDrawing.js \
           /usr/share/gnome-shell/extensions/gaze@gundulabs.com/metadata.json \
           /usr/share/gnome-shell/extensions/gaze@gundulabs.com/prefs.js
         do remove_if_unmanaged "$p"; done;

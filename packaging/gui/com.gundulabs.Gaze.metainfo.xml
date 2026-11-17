@@ -4,7 +4,7 @@
 
 <component type="desktop-application">
   <id>com.gundulabs.Gaze</id>
-  <name>Gaze</name>
+  <name>Stare</name>
   <summary>Enroll faces and configure facial authentication</summary>
   <metadata_license>FSFAP</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>

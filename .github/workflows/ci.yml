@@ -140,6 +140,9 @@ jobs:
       - name: Test supported GNOME Shell versions
         run: node scripts/test-gnome.mjs
 
+      - name: Test the island
+        run: node scripts/test-island.mjs
+
   kde:
     name: KDE
     runs-on: ubuntu-latest

@@ -153,6 +153,24 @@ async function environment(version, options = {}) {
     const answers = [];
     const starts = [];
     const deferred = [];
+    // Stands in for the island actor: records what the extension tells it.
+    const island = [];
+    const systemSignals = [];
+    const timers = new Map();
+    const clock = {now: 0};
+    let nextTimer = 100;
+    class Island {
+        successRemaining() {
+            if (options.islandThrows) throw new Error('island successRemaining failed');
+            return island.successRemaining ?? 0;
+        }
+    }
+    for (const event of ['scan', 'succeed', 'fail', 'end', 'done', 'destroy']) {
+        Island.prototype[event] = () => {
+            island.push(event);
+            if (options.islandThrows) throw new Error(`island ${event} failed`);
+        };
+    }
     const settings = {
         get_boolean: key => key === 'enable-face-authentication'
             ? options.enabled !== false : key === 'enable-password-authentication',
@@ -184,7 +202,10 @@ async function environment(version, options = {}) {
     const Gio = {
         DBusProxy: {makeProxyWrapper: () => DBusProxy},
         DBusInterfaceInfo: {new_for_xml: () => ({})},
-        DBus: {system: {}}, _promisify() {},
+        DBus: {system: {
+            signal_subscribe(...args) { systemSignals.push(args.at(-1)); return 7; },
+            signal_unsubscribe(id) { systemSignals.unsubscribed = id; },
+        }}, DBusSignalFlags: {NONE: 0}, _promisify() {},
         Cancellable: class { cancel() {} },
         Settings: class extends Emitter {
             get_boolean(key) { return settings.get_boolean(key); }
@@ -194,8 +215,16 @@ async function environment(version, options = {}) {
     const Gdm = Object.fromEntries(['Client', 'UserVerifierProxy',
         'UserVerifierChoiceListProxy', 'UserVerifierCustomJSONProxy'].map(name => [name, class {}]));
     const GLib = {
-        getenv: () => null, source_remove() {},
-        timeout_add: () => 1, timeout_add_once: () => 1,
+        getenv: () => null, source_remove(id) { timers.delete(id); },
+        get_user_name: () => 'alice',
+        get_monotonic_time: () => clock.now,
+        SOURCE_REMOVE: false, SOURCE_CONTINUE: true, PRIORITY_DEFAULT: 0,
+        timeout_add(_priority, interval, callback) {
+            const id = nextTimer++;
+            if (interval === 30) timers.set(id, callback); // the island's finish poll
+            return id;
+        },
+        timeout_add_once: () => 1,
         timeout_add_seconds_once: () => 1,
         Source: {set_name_by_id() {}}, Error,
     };
@@ -284,7 +313,7 @@ async function environment(version, options = {}) {
         gettext(text) { return text; }
     }
     const {GazeFaceAuthExtension} = load(await readFile(join(repo, 'integrations/gnome-shell/extension.js'), 'utf8'), {
-        ...common, Extension, InjectionManager, gettext: _, AuthPrompt, Util, PolkitAgent,
+        ...common, Extension, InjectionManager, gettext: _, AuthPrompt, Util, PolkitAgent, Island,
     }, 'GazeFaceAuthExtension', globals);
     const extension = new GazeFaceAuthExtension();
     extension.enable();
@@ -331,7 +360,7 @@ async function environment(version, options = {}) {
         else prompt._onAskQuestion(verifier, ...args);
     });
     return {version, extension, verifier, services, prompt, remote, proxy, errors,
-        answers, starts, deferred, Batch, Clutter, PolkitAgent, AuthPrompt, overrides};
+        answers, starts, deferred, island, systemSignals, timers, clock, Batch, Clutter, PolkitAgent, AuthPrompt, overrides};
 }
 
 function pressKey(env, symbol) {
@@ -341,6 +370,22 @@ function pressKey(env, symbol) {
 
 async function flush() {
     for (let i = 0; i < 8; i++) await Promise.resolve();
+}
+
+// Delivers a PAM info message the way GDM does for this shell version.
+function pamInfo(env, service, text) {
+    if (env.services) env.services._onInfo(service, text);
+    else env.verifier._onInfo(null, service, text);
+}
+
+function stopFace(env) {
+    if (env.services) {
+        env.services._onConversationStarted('gdm-face');
+        env.services._onConversationStopped('gdm-face');
+    } else {
+        env.verifier._activeServices.add('gdm-face');
+        env.verifier._onConversationStopped(null, 'gdm-face');
+    }
 }
 
 async function begin(env) {
@@ -511,6 +556,203 @@ for (const version of versions) {
             assert.equal(env.errors.length, 0, env.errors.map(String).join('\n'));
         } finally { env.extension.disable(); }
     });
+
+    for (const [message, event] of [
+        ['GAZE_MSG_LOOK_CAMERA', 'scan'],
+        ['GAZE_MSG_LOOK_OR_PASSWORD', 'scan'],
+        ['Hold still...', 'scan'],
+        ['GAZE_MSG_FACE_VERIFIED', 'succeed'],
+        ['GAZE_REQUIRE_CONFIRMATION', 'succeed'],
+        ['GAZE_MSG_FACE_NOT_RECOGNIZED', 'fail'],
+        ['GAZE_MSG_FACE_TIMED_OUT', 'fail'],
+        ['GAZE_MSG_PASSWORD_REQUIRED', 'end'],
+    ]) {
+        test(`${version}: ${message} tells the island to ${event}`, async () => {
+            const env = await environment(version);
+            try {
+                await begin(env);
+                env.island.length = 0;
+                pamInfo(env, 'gdm-face', message);
+                assert.deepEqual(env.island, [event]);
+                assert.equal(env.errors.length, 0, env.errors.map(String).join('\n'));
+            } finally { env.extension.disable(); }
+        });
+    }
+
+    test(`${version}: unrelated PAM messages leave the island alone`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            env.island.length = 0;
+            pamInfo(env, 'gdm-password', 'Your password will expire soon');
+            if (env.services) env.services._onSecretInfoQuery('gdm-password', 'Password:');
+            else env.verifier._onSecretInfoQuery(null, 'gdm-password', 'Password:');
+            assert.deepEqual(env.island, []);
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: a face conversation ending without a verdict fails the island`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            env.island.length = 0;
+            stopFace(env);
+            await flush();
+            assert.deepEqual(env.island, ['fail']);
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: resetting or destroying the prompt ends the island`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            env.island.length = 0;
+            env.verifier.cancel = () => {};
+            env.prompt.setUser = () => {}; // builds a native user widget
+            env.prompt.reset();
+            assert.equal(env.island.includes('end'), true, 'reset ends the island');
+            env.island.length = 0;
+            env.verifier.destroy = () => {};
+            env.prompt._onDestroy();
+            assert.equal(env.island.includes('end'), true, 'destroy ends the island');
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: unlock waits for the checkmark, then completes`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            env.verifier.clear = () => {};
+            env.island.successRemaining = 0.8;
+            let unlocked = 0;
+            env.prompt.finish(() => { unlocked++; });
+            assert.equal(unlocked, 0, 'held while the checkmark draws');
+            assert.equal(env.timers.size, 1);
+            const [[, poll]] = env.timers;
+            assert.equal(poll(), true, 'keeps polling');
+            env.island.successRemaining = 0;
+            assert.equal(poll(), false);
+            assert.equal(unlocked, 1);
+            assert.equal(env.errors.length, 0, env.errors.map(String).join('\n'));
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: unlock is never held longer than 1.5 s`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            env.verifier.clear = () => {};
+            env.island.successRemaining = 5;
+            let unlocked = 0;
+            env.prompt.finish(() => { unlocked++; });
+            const [[, poll]] = env.timers;
+            env.clock.now = 1_499_000;
+            assert.equal(poll(), true);
+            env.clock.now = 1_501_000;
+            assert.equal(poll(), false);
+            assert.equal(unlocked, 1);
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: disabling completes a held unlock`, async () => {
+        const env = await environment(version);
+        await begin(env);
+        env.verifier.clear = () => {};
+        env.island.successRemaining = 0.8;
+        let unlocked = 0;
+        env.prompt.finish(() => { unlocked++; });
+        env.extension.disable();
+        assert.equal(unlocked, 1);
+        assert.equal(env.timers.size, 0);
+    });
+
+    test(`${version}: unlock is not held without a face match or when the island fails`, async () => {
+        for (const options of [{}, {islandThrows: true}]) {
+            const env = await environment(version, options);
+            try {
+                await begin(env);
+                env.verifier.clear = () => {};
+                let unlocked = 0;
+                env.prompt.finish(() => { unlocked++; });
+                assert.equal(unlocked, 1);
+            } finally { env.extension.disable(); }
+        }
+    });
+
+    test(`${version}: terminal prompts drive the island for this user only`, async () => {
+        const env = await environment(version);
+        try {
+            const [onSignal] = env.systemSignals;
+            assert.equal(typeof onSignal, 'function');
+            const emit = (...values) => onSignal(null, ':1.9', '/io/github/stare/Island',
+                'io.github.stare.Island', 'Event', {deepUnpack: () => values});
+            env.island.length = 0;
+            emit('scan', 'sudo', 'alice');
+            emit('fail', 'sudo', 'alice');
+            emit('done', 'sudo', 'alice');
+            emit('scan', 'sudo', 'bob');
+            emit('unlock-everything', 'sudo', 'alice');
+            assert.deepEqual(env.island, ['scan', 'fail', 'done']);
+            env.extension.disable();
+            assert.equal(env.systemSignals.unsubscribed, 7);
+            assert.equal(env.errors.length, 0, env.errors.map(String).join('\n'));
+        } finally { if (env.extension._injectionManager) env.extension.disable(); }
+    });
+
+    test(`${version}: disabling destroys the island`, async () => {
+        const env = await environment(version);
+        await begin(env);
+        env.extension.disable();
+        assert.equal(env.island.at(-1), 'destroy');
+        assert.equal(env.extension._island, null);
+    });
+
+    test(`${version}: a failing island does not disturb face confirmation`, async () => {
+        const env = await environment(version, {islandThrows: true});
+        try {
+            await begin(env);
+            if (env.services) env.services._onSecretInfoQuery('gdm-face', 'GAZE_REQUIRE_CONFIRMATION');
+            else env.verifier._onSecretInfoQuery(null, 'gdm-face', 'GAZE_REQUIRE_CONFIRMATION');
+            assert.equal(env.prompt._confirmMode, true);
+            pressKey(env, env.Clutter.KEY_Return);
+            await flush();
+            assert.deepEqual(env.answers, [['gdm-face', 'GAZE_CONFIRMED']]);
+            pamInfo(env, 'gdm-face', 'GAZE_MSG_LOOK_CAMERA');
+            assert.equal(env.verifier.hasPendingMessages, true, 'the hint is still queued');
+            assert.equal(env.island.includes('succeed'), true);
+            assert.equal(env.island.includes('scan'), true);
+        } finally { env.extension.disable(); }
+    });
+
+    for (const [message, event] of [
+        ['GAZE_MSG_LOOK_OR_PASSWORD', 'scan'],
+        ['GAZE_MSG_FACE_VERIFIED', 'succeed'],
+        ['GAZE_MSG_FACE_NOT_RECOGNIZED', 'fail'],
+    ]) {
+        test(`${version}: Polkit ${message} tells the island to ${event}`, async () => {
+            const env = await environment(version);
+            try {
+                const dialog = Object.create(env.PolkitAgent.AuthenticationDialog.prototype);
+                const session = new Emitter();
+                session.cancel = () => {};
+                Object.assign(dialog, {_session: session, _passwordEntry: new Widget(),
+                    _infoMessageLabel: new Widget(), _errorMessageLabel: new Widget(),
+                    _nullMessageLabel: new Widget(), _okButton: new Widget(),
+                    _ensureOpen() {},
+                });
+                new Widget().add_child(dialog._passwordEntry);
+                const component = Object.create(env.PolkitAgent.Component.prototype);
+                component.testDialog = dialog;
+                component._onInitiate();
+                env.island.length = 0;
+                session.emit('show-info', message);
+                assert.deepEqual(env.island, [event]);
+                env.island.length = 0;
+                dialog._destroySession(1); // delayed, so the fake dialog is not reset
+                assert.deepEqual(env.island, ['end']);
+            } finally { if (env.extension._injectionManager) env.extension.disable(); }
+        });
+    }
 
     for (const entry of ['Enter', 'Authenticate button', 'password']) {
         test(`${version}: Polkit ${entry} sends the expected PAM answer`, async () => {

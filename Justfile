@@ -588,6 +588,8 @@ _verify-package format:
     load gaze-gnome-extension
     want_files /usr/share/gnome-shell/extensions/gaze@gundulabs.com/metadata.json \
         /usr/share/gnome-shell/extensions/gaze@gundulabs.com/extension.js \
+        /usr/share/gnome-shell/extensions/gaze@gundulabs.com/island.js \
+        /usr/share/gnome-shell/extensions/gaze@gundulabs.com/islandDrawing.js \
         /usr/share/gnome-shell/extensions/gaze@gundulabs.com/prefs.js \
         /usr/share/glib-2.0/schemas/org.gnome.shell.extensions.gaze.gschema.xml \
         /etc/dconf/db/gdm.d/00-gaze-defaults /usr/share/gaze/dconf-profile-gdm \

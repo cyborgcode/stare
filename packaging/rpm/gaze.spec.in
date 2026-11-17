@@ -236,6 +236,8 @@ install -Dpm 0644 packaging/gui/com.gundulabs.Gaze.metainfo.xml %{buildroot}%{_d
 
 install -Dpm 0644 integrations/gnome-shell/metadata.json %{buildroot}%{_datadir}/gnome-shell/extensions/%{extension_uuid}/metadata.json
 install -Dpm 0644 integrations/gnome-shell/extension.js %{buildroot}%{_datadir}/gnome-shell/extensions/%{extension_uuid}/extension.js
+install -Dpm 0644 integrations/gnome-shell/island.js %{buildroot}%{_datadir}/gnome-shell/extensions/%{extension_uuid}/island.js
+install -Dpm 0644 integrations/gnome-shell/islandDrawing.js %{buildroot}%{_datadir}/gnome-shell/extensions/%{extension_uuid}/islandDrawing.js
 install -Dpm 0644 integrations/gnome-shell/prefs.js %{buildroot}%{_datadir}/gnome-shell/extensions/%{extension_uuid}/prefs.js
 install -Dpm 0644 packaging/config/org.gnome.shell.extensions.gaze.gschema.xml %{buildroot}%{_datadir}/glib-2.0/schemas/org.gnome.shell.extensions.gaze.gschema.xml
 install -Dpm 0644 packaging/gdm/00-gaze-defaults %{buildroot}%{_sysconfdir}/dconf/db/gdm.d/00-gaze-defaults

@@ -19,6 +19,22 @@ import * as AuthPrompt from "resource:///org/gnome/shell/gdm/authPrompt.js";
 import * as PolkitAgent from "resource:///org/gnome/shell/ui/components/polkitAgent.js";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 
+import { Island } from "./island.js";
+
+// Terminal prompts (sudo, su) report through pam_exec, which emits this
+// signal as root on the system bus; a D-Bus policy lets only root send it.
+// See packaging/stare/.
+const STARE_ISLAND_INTERFACE = "io.github.stare.Island";
+const STARE_ISLAND_PATH = "/io/github/stare/Island";
+const STARE_ISLAND_EVENTS = new Map([
+  ["scan", "scan"],
+  ["fail", "fail"],
+  ["done", "done"],
+]);
+// A face match plays its checkmark before the prompt goes away, but never
+// holds an unlock back for longer than this.
+const MAX_FINISH_DELAY_MS = 1500;
+
 const GAZE_DBUS_INTERFACE = `
 <node>
   <interface name="com.gundulabs.Gaze">
@@ -752,6 +768,98 @@ export default class GazeFaceAuthExtension extends Extension {
     const ext = this;
     const faceCache = { enrolled: new Map(), camera: null };
 
+    try {
+      this._island = new Island();
+    } catch (e) {
+      logError(e, "[stare] Failed to create the island");
+      this._island = null;
+    }
+
+    // The island only mirrors what PAM reports. Nothing it does may disturb
+    // authentication, so every call into it is contained here.
+    const island = (event) => {
+      try {
+        ext._island?.[event]();
+      } catch (e) {
+        logError(e, "[stare] The island failed");
+      }
+    };
+
+    this._pendingFinishes = new Map();
+
+    // Runs `run` once the island has finished drawing a face match.
+    const afterIslandSuccess = (key, run) => {
+      let wait = 0;
+      try {
+        wait = ext._island?.successRemaining() ?? 0;
+      } catch (e) {
+        logError(e, "[stare] The island failed");
+      }
+      const pending = ext._pendingFinishes.get(key);
+      if (pending) {
+        pending.runs.push(run);
+        return;
+      }
+      if (!(wait > 0)) {
+        run();
+        return;
+      }
+
+      const started = GLib.get_monotonic_time();
+      const check = () => {
+        let remaining = 0;
+        try {
+          remaining = ext._island?.successRemaining() ?? 0;
+        } catch (e) {}
+        const waited = (GLib.get_monotonic_time() - started) / 1000;
+        if (remaining > 0 && waited < MAX_FINISH_DELAY_MS)
+          return GLib.SOURCE_CONTINUE;
+        const { runs } = ext._pendingFinishes.get(key);
+        ext._pendingFinishes.delete(key);
+        for (const queued of runs) queued();
+        return GLib.SOURCE_REMOVE;
+      };
+      const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 30, check);
+      ext._pendingFinishes.set(key, { id, runs: [run] });
+    };
+
+    if (Gio.DBus.system) {
+      try {
+        this._stareSignalId = Gio.DBus.system.signal_subscribe(
+          null,
+          STARE_ISLAND_INTERFACE,
+          "Event",
+          STARE_ISLAND_PATH,
+          null,
+          Gio.DBusSignalFlags.NONE,
+          (_connection, _sender, _path, _iface, _signal, params) => {
+            try {
+              const [event, , user] = params.deepUnpack();
+              if (user !== GLib.get_user_name()) return;
+              const action = STARE_ISLAND_EVENTS.get(event);
+              if (action) island(action);
+            } catch (e) {
+              logError(e, "[stare] Ignored a malformed island event");
+            }
+          },
+        );
+      } catch (e) {
+        logError(e, "[stare] Failed to listen for terminal prompts");
+      }
+    }
+
+    const islandOnPamMessage = (text) => {
+      const trimmed = typeof text === "string" ? text.trim() : "";
+      if (!trimmed) return;
+
+      if (isCameraHintMessage(trimmed) || FACE_STATUS_UPDATES.has(trimmed))
+        island("scan");
+      else if (isFaceVerifiedMessage(trimmed) || isConfirmationMessage(trimmed))
+        island("succeed");
+      else if (trimmed === GAZE_MSG_PASSWORD_REQUIRED) island("end");
+      else if (trimmed.startsWith("GAZE_MSG_")) island("fail");
+    };
+
     const cacheCamera = () => {
       const proxy = ext._dbusProxy;
       if (!proxy) return;
@@ -864,6 +972,7 @@ export default class GazeFaceAuthExtension extends Extension {
       origInitiateSession,
     ) => {
       const handleDialogShowInfo = function (session, text) {
+        islandOnPamMessage(text);
         const trimmed = text?.trim();
         if (!trimmed) return;
 
@@ -920,6 +1029,7 @@ export default class GazeFaceAuthExtension extends Extension {
       };
 
       const handleDialogShowError = function (session, text) {
+        islandOnPamMessage(text);
         hideFaceHint(this);
         const trimmed = text?.trim();
         const mapped = translatePamError(trimmed);
@@ -933,6 +1043,7 @@ export default class GazeFaceAuthExtension extends Extension {
       };
 
       const handleDialogRequest = function (session, request, echoOn) {
+        islandOnPamMessage(request);
         if (this._sessionRequestTimeoutId) {
           GLib.source_remove(this._sessionRequestTimeoutId);
           this._sessionRequestTimeoutId = 0;
@@ -997,6 +1108,7 @@ export default class GazeFaceAuthExtension extends Extension {
       };
 
       const handleDialogDestroySession = function (delay = 0) {
+        island("end");
         hideFaceHint(this);
         if (origDestroySession) {
           origDestroySession.call(this, delay);
@@ -1284,6 +1396,7 @@ export default class GazeFaceAuthExtension extends Extension {
           "_handleOnInfo",
           (original) => {
             return function (serviceName, info) {
+              islandOnPamMessage(info);
               const text = info?.trim();
               if (text) {
                 if (isConfirmationMessage(text)) {
@@ -1347,6 +1460,7 @@ export default class GazeFaceAuthExtension extends Extension {
           "_handleOnProblem",
           (original) => {
             return function (serviceName, problem) {
+              islandOnPamMessage(problem);
               const text = problem?.trim();
               if (text) {
                 const internalErr = getInternalErrorMessage(text);
@@ -1396,6 +1510,7 @@ export default class GazeFaceAuthExtension extends Extension {
         ]) {
           injectionManager.overrideMethod(authProto, method, (original) => {
             return function (serviceName, query) {
+              islandOnPamMessage(query);
               if (isConfirmationMessage(query)) {
                 emitFilterMessages(this, serviceName, MESSAGE_TYPE.HINT);
                 emitAskQuestion(this, serviceName, GAZE_REQUIRE_CONFIRMATION, secret);
@@ -1464,6 +1579,7 @@ export default class GazeFaceAuthExtension extends Extension {
               // background, and failing it must not fail the whole conversation
               // and take the password prompt down with it.
               emitFilterMessages(this, serviceName, MESSAGE_TYPE.HINT);
+              island("fail");
 
               this._faceFailCounter = (this._faceFailCounter ?? 0) + 1;
               this._faceStartPending = false;
@@ -1482,6 +1598,7 @@ export default class GazeFaceAuthExtension extends Extension {
           "_handleReset",
           (original) => {
             return function (...args) {
+              island("end");
               this._faceUserName = null;
               this._faceFailCounter = 0;
               this._faceAuthFailed = false;
@@ -1686,6 +1803,7 @@ export default class GazeFaceAuthExtension extends Extension {
 
         this._injectionManager.overrideMethod(proto, "_onInfo", (original) => {
           return function (client, serviceName, info) {
+            islandOnPamMessage(info);
             const text = info?.trim();
             if (text) {
               if (isConfirmationMessage(text)) {
@@ -1752,6 +1870,7 @@ export default class GazeFaceAuthExtension extends Extension {
         ]) {
           this._injectionManager.overrideMethod(proto, method, (original) => {
             return function (client, serviceName, query) {
+              islandOnPamMessage(query);
               if (isConfirmationMessage(query)) {
                 // _filterServiceMessages only force-clears when another message is queued behind
                 // the current one, so a lone hint rides out its full ~1s interval unless cleared.
@@ -1784,6 +1903,7 @@ export default class GazeFaceAuthExtension extends Extension {
 
         this._injectionManager.overrideMethod(proto, "_onProblem", (original) => {
           return function (client, serviceName, problem) {
+            islandOnPamMessage(problem);
             const text = problem?.trim();
             if (text) {
               const internalErr = getInternalErrorMessage(text);
@@ -1825,6 +1945,7 @@ export default class GazeFaceAuthExtension extends Extension {
           (original) => {
             return function (client, serviceName) {
               if (serviceName === FACE_SERVICE_NAME) {
+                island("fail");
                 this._faceFailCounter = (this._faceFailCounter || 0) + 1;
                 this._activeServices.delete(serviceName);
               }
@@ -1858,6 +1979,7 @@ export default class GazeFaceAuthExtension extends Extension {
 
         this._injectionManager.overrideMethod(proto, "_onReset", (original) => {
           return function () {
+            island("end");
             this._faceFailCounter = 0;
             this._faceAuthFailed = false;
             this._faceStartPending = false;
@@ -2030,6 +2152,7 @@ export default class GazeFaceAuthExtension extends Extension {
         method,
         (original) => {
           return function (...args) {
+            if (method === "reset") island("end");
             if (
               this.verificationStatus ===
                 AuthPrompt.AuthPromptStatus.VERIFICATION_SUCCEEDED ||
@@ -2091,6 +2214,7 @@ export default class GazeFaceAuthExtension extends Extension {
       "_onVerificationComplete",
       (original) => {
         return function (...args) {
+          island("end");
           this._confirmSucceeded = true;
           if (this._confirmSpinner) {
             this._confirmSpinner.stop();
@@ -2117,6 +2241,11 @@ export default class GazeFaceAuthExtension extends Extension {
       "finish",
       (original) => {
         return function (...args) {
+          // Let a face match finish its checkmark before the prompt goes.
+          afterIslandSuccess(this, () => finishPrompt.apply(this, args));
+        };
+
+        function finishPrompt(...args) {
           const verifier = this._userVerifier;
           const queue = verifier?._messageQueue;
           if (
@@ -2132,7 +2261,7 @@ export default class GazeFaceAuthExtension extends Extension {
             }
           }
           return original.apply(this, args);
-        };
+        }
       },
     );
 
@@ -2141,6 +2270,7 @@ export default class GazeFaceAuthExtension extends Extension {
       "_onDestroy",
       (original) => {
         return function (...args) {
+          island("end");
           if (this._confirmSpinner) {
             this._confirmSpinner.stop();
             this._confirmSpinner = null;
@@ -2168,6 +2298,32 @@ export default class GazeFaceAuthExtension extends Extension {
   disable() {
     activeExtensionInstance = null;
     this._gazeEnableToken = null;
+    // A prompt waiting on the island must still finish: it may be an unlock.
+    if (this._pendingFinishes) {
+      const pending = [...this._pendingFinishes.values()];
+      this._pendingFinishes.clear();
+      for (const { id, runs } of pending) {
+        GLib.source_remove(id);
+        for (const run of runs) {
+          try {
+            run();
+          } catch (e) {
+            logError(e, "[stare] Failed to finish a prompt");
+          }
+        }
+      }
+      this._pendingFinishes = null;
+    }
+    if (this._stareSignalId) {
+      Gio.DBus.system?.signal_unsubscribe(this._stareSignalId);
+      this._stareSignalId = 0;
+    }
+    try {
+      this._island?.destroy();
+    } catch (e) {
+      logError(e, "[stare] Failed to remove the island");
+    }
+    this._island = null;
     if (this._dbusProxy) {
       if (this._nameOwnerId) {
         this._dbusProxy.disconnect(this._nameOwnerId);

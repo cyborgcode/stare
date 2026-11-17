@@ -1,0 +1,6 @@
+Name: Stare: Island before the face scan
+Default: no
+Priority: 900
+Auth-Type: Primary
+Auth:
+	optional	pam_exec.so quiet seteuid type=auth /usr/local/libexec/stare-island-pam scan

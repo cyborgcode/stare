@@ -475,6 +475,8 @@ link_extension_files() {
     install -d "$dir"
     backup_and_install "$REPO/integrations/gnome-shell/metadata.json" "$dir/metadata.json" 0644
     backup_and_install "$REPO/integrations/gnome-shell/extension.js" "$dir/extension.js" 0644
+    backup_and_install "$REPO/integrations/gnome-shell/island.js" "$dir/island.js" 0644
+    backup_and_install "$REPO/integrations/gnome-shell/islandDrawing.js" "$dir/islandDrawing.js" 0644
     backup_and_install "$REPO/integrations/gnome-shell/prefs.js" "$dir/prefs.js" 0644
 }
 
@@ -482,6 +484,8 @@ restore_extension_files() {
     dir=$1
     restore_or_remove "$dir/metadata.json"
     restore_or_remove "$dir/extension.js"
+    restore_or_remove "$dir/island.js"
+    restore_or_remove "$dir/islandDrawing.js"
     restore_or_remove "$dir/prefs.js"
 }
 
@@ -561,6 +565,8 @@ link_gnome_extension() {
         chown "$SUDO_USER:$sudo_user_group" \
             "$user_extension_dir/metadata.json" \
             "$user_extension_dir/extension.js" \
+            "$user_extension_dir/island.js" \
+            "$user_extension_dir/islandDrawing.js" \
             "$user_extension_dir/prefs.js"
     fi
 
@@ -618,6 +624,8 @@ show_status() {
         "$LOCAL_BIN_DIR/gaze" \
         "$LOCAL_BIN_DIR/gaze-gui" \
         "$SYSTEM_EXTENSION_DIR/extension.js" \
+        "$SYSTEM_EXTENSION_DIR/island.js" \
+        "$SYSTEM_EXTENSION_DIR/islandDrawing.js" \
         "$SYSTEM_EXTENSION_DIR/prefs.js" \
         "$SCHEMA_DST" \
         "$POLKIT_POLICY_DST" \

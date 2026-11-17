@@ -22,6 +22,18 @@ you can leave the GNOME extension disabled.
 >
 > If the extension is **inactive/disabled** under GNOME while either toggle is set, Gaze's PAM modules will **safely bypass confirmation** (returning success instantly upon face match) to prevent empty input hangs and user lockouts.
 
+## Dynamic island
+
+Stare's build of the extension shows an island at the top centre of the primary
+monitor while the camera looks for your face: on the lock screen and in GNOME's
+password dialogs, and with Stare's system install also on the login screen and
+for `sudo` and `su` in a terminal. It opens into the face glyph, turns into a ring and a
+checkmark on a match, and dims and shakes when an attempt fails. The hint under
+the password field is still shown.
+
+The island follows the desktop's animation setting: with animations turned off
+it shows each state at rest. It has no settings of its own.
+
 ## Should I enable it?
 
 If you use GNOME and want face unlock on the lock screen, enable the extension.
