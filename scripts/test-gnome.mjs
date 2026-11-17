@@ -524,12 +524,28 @@ for (const version of versions) {
         } finally { env.extension.disable(); }
     });
 
-    test(`${version}: a pending error still holds unlock`, async () => {
+    test(`${version}: a password unlock does not wait for face errors`, async () => {
         const env = await environment(version);
         try {
             await begin(env);
             if (env.services) env.services._onProblem('gdm-face', 'GAZE_MSG_FACE_NOT_RECOGNIZED');
             else env.verifier._onProblem(null, 'gdm-face', 'GAZE_MSG_FACE_NOT_RECOGNIZED');
+            pamInfo(env, 'gdm-face', 'Hold still...');
+            assert.equal(env.verifier.hasPendingMessages, true);
+            env.verifier.clear = () => {};
+            let unlocked = false;
+            env.prompt.finish(() => { unlocked = true; });
+            assert.equal(unlocked, true);
+            assert.equal(env.verifier.hasPendingMessages, false);
+        } finally { env.extension.disable(); }
+    });
+
+    test(`${version}: a pending password-service error still holds unlock`, async () => {
+        const env = await environment(version);
+        try {
+            await begin(env);
+            if (env.services) env.services._onProblem('gdm-password', 'GAZE_MSG_FACE_UNAVAILABLE');
+            else env.verifier._onProblem(null, 'gdm-password', 'GAZE_MSG_FACE_UNAVAILABLE');
             assert.equal(env.verifier.hasPendingMessages, true);
             env.verifier.clear = () => {};
             let unlocked = false;
