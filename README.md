@@ -9,7 +9,7 @@
 
 **Face unlock for Linux, with a dynamic island**
 
-<img src="docs/public/stare-island.gif" alt="The island scanning, failing, retrying and succeeding" width="360" />
+<img src="docs/public/stare-island.gif" alt="The island scanning, failing, retrying and succeeding" width="240" />
 
 </div>
 
