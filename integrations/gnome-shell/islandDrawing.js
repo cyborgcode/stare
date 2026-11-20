@@ -13,20 +13,20 @@
 
 export const ACCENT = [0xe9 / 255, 0x54 / 255, 0x20 / 255]; // Ubuntu orange
 
-// Pill geometry, in logical pixels: two thirds of Glance's pill.
-const CLOSED_WIDTH = 60;
-const CLOSED_HEIGHT = 18;
-const OPEN_SIZE = 120;
-const OPEN_RADIUS = 32;
+// Pill geometry, in logical pixels: five sixths of Glance's pill.
+const CLOSED_WIDTH = 70;
+const CLOSED_HEIGHT = 21;
+const OPEN_SIZE = 150;
+const OPEN_RADIUS = 40;
 const TOP_GAP = 3;
-const OFFSCREEN_SLACK = 14;
-const CONTENT_PADDING = 22;
+const OFFSCREEN_SLACK = 17;
+const CONTENT_PADDING = 27;
 const SHADOW_OPACITY = 0.3;
-const SHADOW_SPREAD = 12;
+const SHADOW_SPREAD = 15;
 const SHADOW_STEPS = 9;
 // The canvas the pill is drawn in: its open size plus room for the shadow and
 // for the opening spring's overshoot.
-const SHADOW_MARGIN = 16;
+const SHADOW_MARGIN = 20;
 const OVERSHOOT_MARGIN = 6;
 export const CANVAS_WIDTH = OPEN_SIZE + 2 * (SHADOW_MARGIN + OVERSHOOT_MARGIN);
 export const CANVAS_HEIGHT =
